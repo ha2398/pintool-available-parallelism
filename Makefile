@@ -1,7 +1,7 @@
 # Pintool Makefile
 
-TOOL_NAME = "pinap"
-TOOL_FOLDER = "source/tools/$(TOOL_NAME)"
+TOOL_NAME = pinap
+TOOL_FOLDER = source/tools/$(TOOL_NAME)
 
 all:
 	$(MAKE) -C $(TOOL_FOLDER)/ && \
