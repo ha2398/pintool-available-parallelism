@@ -36,8 +36,12 @@ void check_addr(void *ip, void *addr)
 
 void Instruction(INS ins, void *v)
 {
+	IMG img = IMG_FindByAddress(INS_Address(ins));
+	if (!IMG_Valid(img) || !IMG_IsMainExecutable(img))
+		return;
+
 	unsigned i;
-	unsigned int mem_op = INS_MemoryOperandCount(ins);
+	unsigned int mem_op = INS_MemoryOperandCount(ins);	
 
 	for (i = 0; i < mem_op; i++) {
 		if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins))
