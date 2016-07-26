@@ -1,47 +1,65 @@
-#include "list.h"
 #include <pin.H>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-FILE *output;
-list *addr_list;
-unsigned long max_prl;
+// External native C modules.
+extern "C" {
+	#include "htable.h"
+	void __assert_fail() {}
+}
 
-void fini(int code, void *v)
+#define NUM_BITS 7
+typedef unsigned long address;
+
+FILE *output;
+unsigned long max_prl;
+struct htable addresses;
+
+static size_t addr_hash(const void *elem, void *unused)
+{
+	size_t h = *(uint64_t *)elem / 2;
+	h |= -1UL << NUM_BITS;
+	return h;
+}
+
+static void fini(int code, void *v)
 {
 	fprintf(output, "%lu", max_prl);
 	fclose(output);
 }
 
-bool addr_eq(const void *addr1, const void *addr2)
+static bool cmp(const void *candidate, void *ptr)
 {
-	return *(unsigned long*) addr1 == *(unsigned long*)addr2;
+	return *(address *)candidate == *(address *)ptr;
 }
 
-void check_addr(void *ip, void *addr)
+static void check_addr(void *ip, void *addr)
 {
-	unsigned long list_length = list_size(addr_list);
-	unsigned long *new_addr = (unsigned long*)malloc(sizeof(*new_addr));
-	*new_addr = (unsigned long)addr;
+	unsigned long num_addr = (unsigned long)addresses.elems;
+	address *new_addr = (address*)malloc(sizeof(*new_addr));
+	*new_addr = (address)addr;
 
-	if (list_contains(addr_list, new_addr, addr_eq)) {
-		if (list_length > max_prl)
-			max_prl = list_length;
+	size_t new_addr_hash = addr_hash(new_addr, NULL);
 
-		delete_list(addr_list);
-	} else {
-		list_add(addr_list, new_addr);
+	if (htable_get(&addresses, new_addr_hash, cmp, new_addr)) {
+		if (num_addr > max_prl)
+			max_prl = num_addr;
+
+		htable_clear(&addresses);
 	}
+	
+	htable_add(&addresses, new_addr_hash, new_addr);
 }
 
-void Instruction(INS ins, void *v)
+static void Instruction(INS ins, void *v)
 {
 	IMG img = IMG_FindByAddress(INS_Address(ins));
 	if (!IMG_Valid(img) || !IMG_IsMainExecutable(img))
 		return;
 
 	unsigned i;
-	unsigned int mem_op = INS_MemoryOperandCount(ins);	
+	unsigned int mem_op = INS_MemoryOperandCount(ins);
 
 	for (i = 0; i < mem_op; i++) {
 		if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins))
@@ -59,11 +77,10 @@ int main(int argc, char **argv)
 {
 	/* Initializations */
 	output = fopen("trace.out", "w");
-	addr_list = new_list();
 	max_prl = 0;
+	htable_init(&addresses, addr_hash, NULL);
 
 	/* Instrumentation */
-	PIN_InitSymbols();
 	PIN_Init(argc, argv);
 
 	INS_AddInstrumentFunction(Instruction, 0);
