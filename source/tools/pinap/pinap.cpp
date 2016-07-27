@@ -16,6 +16,8 @@ FILE *output;
 unsigned long max_prl;
 struct htable addresses;
 
+bool inst_enable = false; /* enables instrumentation */
+
 static size_t addr_hash(const void *elem, void *unused)
 {
 	size_t h = *(uint64_t *)elem / 2;
@@ -54,6 +56,9 @@ static void check_addr(void *ip, void *addr)
 
 static void Instruction(INS ins, void *v)
 {
+	if (!inst_enable)
+		return;
+
 	IMG img = IMG_FindByAddress(INS_Address(ins));
 	if (!IMG_Valid(img) || !IMG_IsMainExecutable(img))
 		return;
@@ -73,18 +78,43 @@ static void Instruction(INS ins, void *v)
 	}
 }
 
+static void pin_enable()
+{
+	inst_enable = true;
+}
+
+static void pin_disable()
+{
+	inst_enable = false;
+}
+
+static void Routine(RTN rtn, void *v)
+{
+	RTN_Open(rtn);
+
+	if (strcmp(&(RTN_Name(rtn)[0]), "pin_go") == 0)
+		RTN_InsertCall(rtn, IPOINT_AFTER, (AFUNPTR)pin_enable,
+			IARG_END);
+
+	if (strcmp(&(RTN_Name(rtn)[0]), "pin_stop") == 0)
+		RTN_InsertCall(rtn, IPOINT_AFTER, (AFUNPTR)pin_disable,
+			IARG_END);
+
+	RTN_Close(rtn);
+}
+
 int main(int argc, char **argv)
 {
 	/* Initializations */
 	output = fopen("trace.out", "w");
 	max_prl = 0;
 	htable_init(&addresses, addr_hash, NULL);
-
-	/* Instrumentation */
+	PIN_InitSymbols();
 	PIN_Init(argc, argv);
 
+	/* Instrumentation */
+	RTN_AddInstrumentFunction(Routine, 0);
 	INS_AddInstrumentFunction(Instruction, 0);
-
 	PIN_AddFiniFunction(fini, 0);
 	PIN_StartProgram();
 
