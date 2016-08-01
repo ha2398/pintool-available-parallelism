@@ -13,7 +13,8 @@ extern "C" {
 typedef unsigned long address;
 
 FILE *output;
-unsigned long max_prl;
+unsigned long instr_count;
+unsigned long max_instr_count;
 struct htable addresses;
 
 bool inst_enable = false; /* enables instrumentation */
@@ -27,7 +28,7 @@ static size_t addr_hash(const void *elem, void *unused)
 
 static void fini(int code, void *v)
 {
-	fprintf(output, "%lu", max_prl);
+	fprintf(output, "Max: %lu", max_instr_count);
 	fclose(output);
 }
 
@@ -36,27 +37,47 @@ static bool cmp(const void *candidate, void *ptr)
 	return *(address *)candidate == *(address *)ptr;
 }
 
+static void do_count()
+{
+	if (!inst_enable)
+		return;
+
+	instr_count++;
+}
+
 static void check_addr(void *ip, void *addr)
 {
-	unsigned long num_addr = (unsigned long)addresses.elems;
+	if (!inst_enable)
+		return;
+
 	address *new_addr = (address*)malloc(sizeof(*new_addr));
 	*new_addr = (address)addr;
 
 	size_t new_addr_hash = addr_hash(new_addr, NULL);
 
 	if (htable_get(&addresses, new_addr_hash, cmp, new_addr)) {
-		if (num_addr > max_prl)
-			max_prl = num_addr;
+		if (instr_count > max_instr_count) {
+			max_instr_count = instr_count;
+			instr_count = 0;
+		}
 
 		htable_clear(&addresses);
 	}
-	
+
 	htable_add(&addresses, new_addr_hash, new_addr);
 }
 
 static void Instruction(INS ins, void *v)
 {
-	if (!inst_enable)
+	INS_InsertPredicatedCall(
+		ins, IPOINT_BEFORE,
+		(AFUNPTR)do_count,
+		IARG_END);
+
+	if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins))
+		return;
+
+	if (!INS_IsStackRead(ins) && !INS_IsStackWrite(ins))
 		return;
 
 	IMG img = IMG_FindByAddress(INS_Address(ins));
@@ -67,9 +88,6 @@ static void Instruction(INS ins, void *v)
 	unsigned int mem_op = INS_MemoryOperandCount(ins);
 
 	for (i = 0; i < mem_op; i++) {
-		if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins))
-			return;
-
 		INS_InsertPredicatedCall(
 			ins, IPOINT_BEFORE,
 			(AFUNPTR)check_addr,
@@ -107,7 +125,8 @@ int main(int argc, char **argv)
 {
 	/* Initializations */
 	output = fopen("trace.out", "w");
-	max_prl = 0;
+	instr_count = 0;
+	max_instr_count = 0;
 	htable_init(&addresses, addr_hash, NULL);
 	PIN_InitSymbols();
 	PIN_Init(argc, argv);
