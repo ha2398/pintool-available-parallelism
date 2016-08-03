@@ -74,12 +74,15 @@ static void Instruction(INS ins, void *v)
 		(AFUNPTR)do_count,
 		IARG_END);
 
+	// Filters out non memory reference instructions.
 	if (!INS_IsMemoryRead(ins) && !INS_IsMemoryWrite(ins))
 		return;
 
-	if (!INS_IsStackRead(ins) && !INS_IsStackWrite(ins))
+	// Filters out references to stack.
+	if (INS_IsStackRead(ins) || INS_IsStackWrite(ins))
 		return;
 
+	// Filters out instructions out of main executable.
 	IMG img = IMG_FindByAddress(INS_Address(ins));
 	if (!IMG_Valid(img) || !IMG_IsMainExecutable(img))
 		return;
